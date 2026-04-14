@@ -1,0 +1,36 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Jupyter
+*.nbconvert.ipynb
+
+# Data artifacts: raw/processed data are reproducible via scripts/, so
+# keep them out of the repo by default. Whitelist the directory itself
+# so the folder layout is preserved.
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Generated results
+results/*
+!results/.gitkeep
+
+# Graveyard holds retired code; don't ignore it, but ignore its stray artifacts.
+graveyard/**/__pycache__/

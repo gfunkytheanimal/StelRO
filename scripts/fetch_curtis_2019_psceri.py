@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Fetch Curtis et al. 2020 (ApJ 904, 140) Table 5 — the composite rotation
-sample covering Pleiades, Praesepe, NGC 6811, NGC 6819, Ruprecht 147, NGC 752,
-and supporting clusters (923 rows).
+"""Fetch Curtis et al. 2019 (AJ 158, 77) — rotation periods for the
+Pisces-Eridanus stellar stream (~120 Myr), Table 2 (101 rows).
 
-Primary path: VizieR TAP catalog `J/ApJ/904/140`, table `table5`.
+Primary path: VizieR TAP catalog `J/AJ/158/77`, table `table2`.
 Fallback:     FITS mirror in lgbouma/gyro-interp.
 
-Output: data/raw/curtis_2020_table5.csv
+Output: data/raw/curtis_2019_psceri.csv
 """
 from __future__ import annotations
 
@@ -20,33 +19,31 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _vizier_fetch import CatalogSpec, decode_bytes, fetch_catalog, write_csv
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-OUT_CSV = REPO_ROOT / "data" / "raw" / "curtis_2020_table5.csv"
+OUT_CSV = REPO_ROOT / "data" / "raw" / "curtis_2019_psceri.csv"
 
 SPEC = CatalogSpec(
-    name="curtis_2020_table5",
-    vizier_table="J/ApJ/904/140/table5",
+    name="curtis_2019_psceri",
+    vizier_table="J/AJ/158/77/table2",
     mirror_url=(
         "https://raw.githubusercontent.com/lgbouma/gyro-interp/main/"
-        "gyrointerp/data/literature/Curtis_2020_t5_composite_923_rows.fits"
+        "gyrointerp/data/literature/Curtis_2019_PscEri_table2_101rows.fits"
     ),
 )
 
 
 def summarize(df: pd.DataFrame) -> None:
     print(f"Total rows: {len(df)}")
-    print()
-    print("Per-cluster counts:")
-    counts = df["Cluster"].value_counts().sort_index()
-    width = max(len(str(c)) for c in counts.index)
-    for cluster, n in counts.items():
-        print(f"  {cluster:<{width}}  {n:>4d}")
-    print()
-    teff = pd.to_numeric(df["Teff"], errors="coerce")
-    prot = pd.to_numeric(df["Prot"], errors="coerce")
+    teff = pd.to_numeric(df.get("Teff"), errors="coerce")
+    prot = pd.to_numeric(df.get("Prot"), errors="coerce")
     print(f"Teff range [K]: {teff.min():.1f} .. {teff.max():.1f} "
           f"(median {teff.median():.1f}, N={teff.notna().sum()})")
     print(f"Prot range [d]: {prot.min():.3f} .. {prot.max():.3f} "
           f"(median {prot.median():.3f}, N={prot.notna().sum()})")
+    if "Note" in df.columns:
+        print()
+        print("Temperature-class tags (Note):")
+        for tag, n in df["Note"].value_counts().sort_index().items():
+            print(f"  {tag or '(none)':<10s}  {n:>4d}")
 
 
 def main() -> int:

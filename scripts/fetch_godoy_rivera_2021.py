@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Fetch Curtis et al. 2020 (ApJ 904, 140) Table 5 — the composite rotation
-sample covering Pleiades, Praesepe, NGC 6811, NGC 6819, Ruprecht 147, NGC 752,
-and supporting clusters (923 rows).
+"""Fetch Godoy-Rivera, Pinsonneault & Rebull 2021 (ApJS 257, 46) —
+a homogeneous Gaia-DR2 based rotation sample across seven open clusters
+(NGC 2547, NGC 2516, M50, M37, Pleiades, Praesepe, NGC 6811; 3492 rows).
 
-Primary path: VizieR TAP catalog `J/ApJ/904/140`, table `table5`.
+Primary path: VizieR TAP catalog `J/ApJS/257/46`, table `table2`.
 Fallback:     FITS mirror in lgbouma/gyro-interp.
 
-Output: data/raw/curtis_2020_table5.csv
+Output: data/raw/godoy_rivera_2021.csv
 """
 from __future__ import annotations
 
@@ -20,14 +20,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _vizier_fetch import CatalogSpec, decode_bytes, fetch_catalog, write_csv
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-OUT_CSV = REPO_ROOT / "data" / "raw" / "curtis_2020_table5.csv"
+OUT_CSV = REPO_ROOT / "data" / "raw" / "godoy_rivera_2021.csv"
 
 SPEC = CatalogSpec(
-    name="curtis_2020_table5",
-    vizier_table="J/ApJ/904/140/table5",
+    name="godoy_rivera_2021",
+    vizier_table="J/ApJS/257/46/table2",
     mirror_url=(
         "https://raw.githubusercontent.com/lgbouma/gyro-interp/main/"
-        "gyrointerp/data/literature/Curtis_2020_t5_composite_923_rows.fits"
+        "gyrointerp/data/literature/"
+        "Godoy-Rivera_2021_M37_M50_NGC2516_NGC2547_NGC6811_Pleiades_Praesepe.fits"
     ),
 )
 
@@ -41,8 +42,8 @@ def summarize(df: pd.DataFrame) -> None:
     for cluster, n in counts.items():
         print(f"  {cluster:<{width}}  {n:>4d}")
     print()
-    teff = pd.to_numeric(df["Teff"], errors="coerce")
-    prot = pd.to_numeric(df["Prot"], errors="coerce")
+    teff = pd.to_numeric(df.get("Teff"), errors="coerce")
+    prot = pd.to_numeric(df.get("Period"), errors="coerce")
     print(f"Teff range [K]: {teff.min():.1f} .. {teff.max():.1f} "
           f"(median {teff.median():.1f}, N={teff.notna().sum()})")
     print(f"Prot range [d]: {prot.min():.3f} .. {prot.max():.3f} "

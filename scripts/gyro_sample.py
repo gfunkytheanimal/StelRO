@@ -25,12 +25,16 @@ DTYPES: dict[str, str] = {
     "cluster_age_gyr": "float64",
     "gaia_dr2": "string",
     "gaia_dr3": "string",
+    "kic": "string",
     "teff_k": "float64",
     "teff_source": "string",
     "bp_rp_0": "float64",
     "prot_d": "float64",
     "ra_deg": "float64",
     "dec_deg": "float64",
+    "age_gyr": "float64",
+    "age_source": "string",
+    "age_unc_gyr": "float64",
     "is_cross_catalog_duplicate": "boolean",
 }
 
@@ -48,6 +52,7 @@ def dedupe_by_gaia(
         "curtis_2019_psceri",
         "godoy_rivera_2021",
         "gruner_2023_m67",
+        "hall_2021",
     ),
 ) -> pd.DataFrame:
     """Keep one row per star, preferring catalogs earlier in ``priority``.

@@ -12,6 +12,7 @@ Run the fetchers first (or only the ones you want):
     python scripts/fetch_godoy_rivera_2021.py      # 7 clusters, Gaia DR2
     python scripts/fetch_curtis_2019_psceri.py     # Pisces-Eridanus, 120 Myr
     python scripts/fetch_gruner_2023_m67.py        # M67, ~4 Gyr, Gaia DR3
+    python scripts/fetch_hall_2021.py              # asteroseismic field stars, 1-13 Gyr
     python scripts/build_gyro_sample.py
 """
 from __future__ import annotations
@@ -66,13 +67,23 @@ UNIFIED_COLUMNS = [
     "cluster_age_gyr",
     "gaia_dr2",
     "gaia_dr3",
+    "kic",
     "teff_k",
     "teff_source",       # 'catalog' or 'derived_bp_rp'
     "bp_rp_0",           # dereddened Gaia BP-RP, where published
     "prot_d",
     "ra_deg",
     "dec_deg",
+    # Age columns — populated for all rows in the final output.
+    "age_gyr",           # adopted age (cluster_age_gyr for cluster stars, asteroseismic for field)
+    "age_source",        # 'cluster' | 'asteroseismic_hall_2021' | (future values)
+    "age_unc_gyr",       # symmetric uncertainty in age (null for cluster stars)
 ]
+
+# TODO: Phase 2 — add Kepler LEGACY asteroseismic sample (Lund et al. 2017 /
+# Silva Aguirre et al. 2017, ~66 dwarfs with high-precision ages but no
+# published Prot — needs cross-match with McQuillan 2014). The age_source
+# value "asteroseismic_legacy" is reserved for this addition.
 
 
 def _norm_cluster(raw: str) -> str:
@@ -108,8 +119,6 @@ def _load_curtis_2020() -> pd.DataFrame:
 
 def _load_curtis_2020_rup147() -> pd.DataFrame:
     df = pd.read_csv(RAW / "curtis_2020_rup147.csv")
-    # Table 1 is the parent membership catalog; Prot is only populated for
-    # the ~155 rotators and uses <=0 as a flag for non-measurements.
     prot = pd.to_numeric(df["Prot"], errors="coerce")
     mask = prot > 0
     df = df.loc[mask].reset_index(drop=True)
@@ -171,12 +180,33 @@ def _load_gruner_2023_m67() -> pd.DataFrame:
     return out
 
 
+def _load_hall_2021() -> pd.DataFrame:
+    df = pd.read_csv(RAW / "hall_2021.csv")
+    out = _empty_frame(len(df))
+    out["source_catalog"] = "hall_2021"
+    # Field stars — no cluster association.
+    out["cluster"] = pd.NA
+    out["cluster_age_gyr"] = pd.NA
+    out["kic"] = df["KIC"].astype("Int64").astype("string")
+    out["teff_k"] = pd.to_numeric(df["Teff"], errors="coerce")
+    out["teff_source"] = "catalog"
+    out["prot_d"] = pd.to_numeric(df["P"], errors="coerce")
+    # Asteroseismic individual ages.
+    out["age_gyr"] = pd.to_numeric(df["age"], errors="coerce")
+    out["age_source"] = "asteroseismic_hall_2021"
+    lo = pd.to_numeric(df["loage"], errors="coerce")
+    up = pd.to_numeric(df["upage"], errors="coerce")
+    out["age_unc_gyr"] = (lo + up) / 2.0
+    return out
+
+
 LOADERS = {
     "curtis_2020":          _load_curtis_2020,
     "curtis_2020_rup147":   _load_curtis_2020_rup147,
     "godoy_rivera_2021":    _load_godoy_rivera_2021,
     "curtis_2019_psceri":   _load_curtis_2019_psceri,
     "gruner_2023_m67":      _load_gruner_2023_m67,
+    "hall_2021":            _load_hall_2021,
 }
 
 
@@ -217,6 +247,27 @@ def _derive_missing_teff(sample: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Populate age_gyr / age_source for cluster stars.
+# ---------------------------------------------------------------------------
+
+def _populate_age_columns(sample: pd.DataFrame) -> pd.DataFrame:
+    """Fill age_gyr and age_source for every row.
+
+    Cluster stars: age_gyr = cluster_age_gyr, age_source = "cluster",
+    age_unc_gyr = null (cluster ages are point estimates in this schema).
+    Field-star catalogs (e.g. Hall 2021) set these columns in their loader.
+    """
+    sample = sample.copy()
+    is_cluster = sample["cluster"].notna() & sample["age_gyr"].isna()
+    sample.loc[is_cluster, "age_gyr"] = pd.to_numeric(
+        sample.loc[is_cluster, "cluster_age_gyr"], errors="coerce"
+    )
+    sample.loc[is_cluster, "age_source"] = "cluster"
+    # age_unc_gyr stays NA for cluster stars (point estimates).
+    return sample
+
+
+# ---------------------------------------------------------------------------
 # Cross-catalog duplicate flagging.
 # ---------------------------------------------------------------------------
 
@@ -243,6 +294,74 @@ def _flag_cross_catalog_duplicates(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Summary reporting.
+# ---------------------------------------------------------------------------
+
+def _print_summary(sample: pd.DataFrame) -> None:
+    print(f"Wrote {OUT.relative_to(REPO_ROOT)}  "
+          f"({len(sample)} rows, {len(sample.columns)} cols)")
+    print()
+
+    print("Per-source counts:")
+    for src, n in sample["source_catalog"].value_counts().sort_index().items():
+        print(f"  {src:<22s}  {n:>5d}")
+    print()
+
+    cluster_stars = sample[sample["cluster"].notna()]
+    field_stars = sample[sample["cluster"].isna()]
+    print(f"Cluster stars: {len(cluster_stars)}  |  "
+          f"Field stars: {len(field_stars)}")
+    print()
+
+    if len(cluster_stars):
+        print("Per-cluster counts (age-ordered):")
+        cluster_order = (cluster_stars.groupby("cluster")["cluster_age_gyr"]
+                                      .first().sort_values().index)
+        width = max(len(c) for c in cluster_order)
+        for cluster in cluster_order:
+            sub = cluster_stars[cluster_stars["cluster"] == cluster]
+            age = sub["cluster_age_gyr"].iloc[0]
+            print(f"  {cluster:<{width}s}  {age:>5.3f} Gyr  n={len(sub):>5d}  "
+                  f"({sub['teff_k'].notna().sum()} with Teff, "
+                  f"{sub['prot_d'].notna().sum()} with Prot)")
+        print()
+
+    print("Teff source breakdown:")
+    for src, n in sample["teff_source"].value_counts(dropna=False).items():
+        print(f"  {src!s:<16s}  {n:>5d}")
+    print()
+
+    dup = int(sample["is_cross_catalog_duplicate"].sum())
+    print(f"Rows sharing a Gaia DR2/DR3 ID across catalogs: {dup}")
+    teff = sample["teff_k"]
+    prot = sample["prot_d"]
+    print(f"Teff range [K]: {teff.min():.1f} .. {teff.max():.1f} "
+          f"(N={teff.notna().sum()})")
+    print(f"Prot range [d]: {prot.min():.3f} .. {prot.max():.3f} "
+          f"(N={prot.notna().sum()})")
+    print()
+
+    # Age histogram in 1-Gyr bins from 0 to 14 Gyr.
+    age = pd.to_numeric(sample["age_gyr"], errors="coerce")
+    bins = range(0, 15)
+    counts, edges = np.histogram(age.dropna().to_numpy(), bins=bins)
+    print("Age histogram (1-Gyr bins, all sources):")
+    for lo, hi, n in zip(edges[:-1], edges[1:], counts):
+        bar = "#" * n
+        print(f"  {lo:>2d}-{hi:>2d} Gyr  {n:>5d}  {bar}")
+    print()
+
+    # Stall-regime G-dwarf count.
+    g_band = sample[(teff >= 5200) & (teff <= 5900)]
+    old_g = g_band[pd.to_numeric(g_band["age_gyr"], errors="coerce") > 2]
+    print(f"G dwarfs (5200-5900 K) with age > 2 Gyr: {len(old_g)}  "
+          f"<-- stall-regime sample size")
+    by_src = old_g["age_source"].value_counts()
+    for src, n in by_src.items():
+        print(f"  {src:<30s}  {n:>4d}")
+
+
+# ---------------------------------------------------------------------------
 
 def main() -> int:
     frames: list[pd.DataFrame] = []
@@ -262,54 +381,24 @@ def main() -> int:
 
     sample = pd.concat(frames, ignore_index=True)
     sample = _derive_missing_teff(sample)
+    sample = _populate_age_columns(sample)
     sample = _flag_cross_catalog_duplicates(sample)
 
     # Numeric coercion for final output (avoids object dtypes from _empty_frame).
-    for col in ("cluster_age_gyr", "teff_k", "bp_rp_0", "prot_d", "ra_deg", "dec_deg"):
+    for col in ("cluster_age_gyr", "teff_k", "bp_rp_0", "prot_d", "ra_deg",
+                "dec_deg", "age_gyr", "age_unc_gyr"):
         sample[col] = pd.to_numeric(sample[col], errors="coerce")
 
     sample = sample.sort_values(
-        ["cluster_age_gyr", "cluster", "source_catalog", "teff_k"],
+        ["age_gyr", "cluster", "source_catalog", "teff_k"],
         kind="mergesort",
+        na_position="last",
     ).reset_index(drop=True)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     sample.to_csv(OUT, index=False)
 
-    print(f"Wrote {OUT.relative_to(REPO_ROOT)}  "
-          f"({len(sample)} rows, {len(sample.columns)} cols)")
-    print()
-
-    print("Per-source counts:")
-    for src, n in sample["source_catalog"].value_counts().sort_index().items():
-        print(f"  {src:<22s}  {n:>5d}")
-    print()
-
-    print("Per-cluster counts (age-ordered):")
-    cluster_order = (sample.groupby("cluster")["cluster_age_gyr"]
-                           .first().sort_values().index)
-    width = max(len(c) for c in cluster_order)
-    for cluster in cluster_order:
-        sub = sample[sample["cluster"] == cluster]
-        age = sub["cluster_age_gyr"].iloc[0]
-        print(f"  {cluster:<{width}s}  {age:>5.3f} Gyr  n={len(sub):>5d}  "
-              f"({sub['teff_k'].notna().sum()} with Teff, "
-              f"{sub['prot_d'].notna().sum()} with Prot)")
-    print()
-
-    print("Teff source breakdown:")
-    for src, n in sample["teff_source"].value_counts(dropna=False).items():
-        print(f"  {src!s:<16s}  {n:>5d}")
-    print()
-
-    dup = int(sample["is_cross_catalog_duplicate"].sum())
-    print(f"Rows sharing a Gaia DR2/DR3 ID across catalogs: {dup}")
-    teff = sample["teff_k"]
-    prot = sample["prot_d"]
-    print(f"Teff range [K]: {teff.min():.1f} .. {teff.max():.1f} "
-          f"(N={teff.notna().sum()})")
-    print(f"Prot range [d]: {prot.min():.3f} .. {prot.max():.3f} "
-          f"(N={prot.notna().sum()})")
+    _print_summary(sample)
     return 0
 
 

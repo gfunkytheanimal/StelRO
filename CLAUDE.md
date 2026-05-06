@@ -15,6 +15,10 @@ python scripts/fetch_godoy_rivera_2021.py
 python scripts/fetch_curtis_2019_psceri.py
 python scripts/fetch_gruner_2023_m67.py
 python scripts/fetch_hall_2021.py
+python scripts/fetch_silva_aguirre_2017.py --mirror
+python scripts/fetch_nielsen_2017.py
+python scripts/fetch_mcquillan_2014.py
+python scripts/build_legacy_sample.py
 python scripts/build_gyro_sample.py
 ```
 
@@ -22,7 +26,7 @@ python scripts/build_gyro_sample.py
 Always use the helper — naive `pd.read_csv` corrupts 19-digit Gaia IDs:
 ```python
 from scripts.gyro_sample import load_gyro_sample, dedupe_by_gaia
-sample = load_gyro_sample()           # 4724 rows, 16 cols
+sample = load_gyro_sample()           # 4790 rows, 21 cols
 unique = dedupe_by_gaia(sample)       # ~3784 unique stars
 ```
 
@@ -31,9 +35,11 @@ unique = dedupe_by_gaia(sample)       # ~3784 unique stars
   asteroseismic age depending on `age_source`)
 - `prot_d` — rotation period in days
 - `teff_k` — effective temperature in K
-- `age_source` — `"cluster"` or `"asteroseismic_hall_2021"`
+- `prot_source` — measurement technique: `"spot_modulation"`, `"asteroseismic_splitting"`, or per-paper label
+- `age_source` — `"cluster"`, `"asteroseismic_hall_2021"`, or `"asteroseismic_legacy"`
 - `age_unc_gyr` — age uncertainty (null for cluster stars)
-- `is_cross_catalog_duplicate` — True if same Gaia ID in multiple catalogs
+- `mass_msun`, `feh`, `logg`, `radius_rsun` — BASTA model parameters (populated for field stars)
+- `is_cross_catalog_duplicate` — True if same Gaia ID or KIC in multiple catalogs
 
 ## Data is gitignored
 `data/raw/` and `data/processed/` are in `.gitignore`. Run the fetch scripts
@@ -56,5 +62,9 @@ to force the fallback).
 - NGC 752 (1.4 Gyr) has only 8 stars total
 - Hall 2021 Prot is from asteroseismic frequency splitting, not spot
   modulation — distinct measurement technique from the cluster catalogs
+- LEGACY 2017: all 66 KICs are a subset of Hall 2021; the addition brings
+  BASTA model params and surface-Prot crossmatch (43/66 have spot Prot)
+- 6 LEGACY stars have no Prot from any source
 - Cluster ages are point estimates with no uncertainty in this schema;
-  Hall 2021 field stars carry `age_unc_gyr`
+  field stars carry `age_unc_gyr`
+- Modeling-ready count (age>2 Gyr, G-dwarf, non-null Prot AND mass): 49

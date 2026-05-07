@@ -37,6 +37,8 @@ DTYPES: dict[str, str] = {
     "age_source": "string",
     "age_unc_gyr": "float64",
     "mass_msun": "float64",
+    "mass_unc_msun": "float64",
+    "mass_source": "string",
     "feh": "float64",
     "logg": "float64",
     "radius_rsun": "float64",

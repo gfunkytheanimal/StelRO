@@ -23,13 +23,17 @@ python scripts/fetch_garcia_2014.py --mirror
 python scripts/fetch_chaplin_2014.py
 python scripts/build_garcia_sample.py
 python scripts/build_gyro_sample.py
+# Optional: cluster mass interpolation (requires local MIST grid)
+python scripts/_minimint_check.py
+python scripts/interpolate_cluster_masses.py
+python scripts/build_gyro_sample.py          # re-run to merge MIST masses
 ```
 
 ## Loading the sample
 Always use the helper — naive `pd.read_csv` corrupts 19-digit Gaia IDs:
 ```python
 from scripts.gyro_sample import load_gyro_sample, dedupe_by_gaia
-sample = load_gyro_sample()           # 5083 rows, 21 cols
+sample = load_gyro_sample()           # 5083 rows, 23 cols
 unique = dedupe_by_gaia(sample)       # ~4037 unique stars
 ```
 
@@ -41,7 +45,8 @@ unique = dedupe_by_gaia(sample)       # ~4037 unique stars
 - `prot_source` — measurement technique: `"spot_modulation"`, `"asteroseismic_splitting"`, or per-paper label
 - `age_source` — `"cluster"`, `"asteroseismic_hall_2021"`, `"asteroseismic_legacy"`, or `"asteroseismic_garcia2014"`
 - `age_unc_gyr` — age uncertainty (null for cluster stars)
-- `mass_msun`, `feh`, `logg`, `radius_rsun` — BASTA model parameters (populated for field stars)
+- `mass_msun`, `mass_unc_msun`, `mass_source` — stellar mass + uncertainty + provenance (`"basta"` or `"mist_isochrone"`)
+- `feh`, `logg`, `radius_rsun` — BASTA model parameters (field stars) or adopted values (cluster stars)
 - `is_cross_catalog_duplicate` — True if same Gaia ID or KIC in multiple catalogs
 
 ## Data is gitignored
@@ -76,3 +81,6 @@ to force the fallback).
   field stars carry `age_unc_gyr`
 - Modeling-ready count (age>2 Gyr, G-dwarf, non-null Prot AND mass):
   100 pre-dedup, 73 deduped (44 García + 18 LEGACY + 11 Hall)
+  With MIST cluster masses: ~128 expected (73 field + ~55 cluster G dwarfs)
+- MIST mass interpolation requires local grid (~500 MB); `build_gyro_sample.py`
+  gracefully skips if `cluster_masses_mist.csv` is absent

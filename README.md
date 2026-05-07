@@ -42,6 +42,26 @@ python scripts/build_garcia_sample.py        # -> data/raw/garcia_assembled.csv
 python scripts/build_gyro_sample.py          # -> data/processed/gyro_sample.csv
 ```
 
+### Cluster mass interpolation (optional, local-only)
+
+```bash
+python scripts/_minimint_check.py            # verify minimint + MIST grid
+python scripts/interpolate_cluster_masses.py # -> data/raw/cluster_masses_mist.csv
+python scripts/build_gyro_sample.py          # re-run to merge MIST masses
+```
+
+The MIST grid download (~500 MB) requires access to `waps.cfa.harvard.edu`
+and must be run locally:
+
+```bash
+pip install minimint scipy
+python -c "import minimint; minimint.download_and_prepare()"
+```
+
+`build_gyro_sample.py` gracefully skips the merge if
+`cluster_masses_mist.csv` is absent — the pipeline is fully functional
+without it, but cluster stars will lack `mass_msun`.
+
 Each `fetch_*.py` script queries the VizieR TAP endpoint (primary) and
 transparently falls back to a mirror when CDS is unreachable. Pass `--mirror`
 to force the fallback.
@@ -109,8 +129,10 @@ duplicates are flagged but retained.
 | `age_gyr`                     | float    | **Adopted age in Gyr.** Equals `cluster_age_gyr` for cluster stars; equals the asteroseismic age for field stars. Populated for every row. |
 | `age_source`                  | string   | `cluster`, `asteroseismic_hall_2021`, or `asteroseismic_legacy`                         |
 | `age_unc_gyr`                 | float    | Symmetric age uncertainty in Gyr (mean of asymmetric lo/up); null for cluster stars      |
-| `mass_msun`                   | float    | Stellar mass in solar masses (from BASTA models; populated for field stars)              |
-| `feh`                         | float    | Metallicity [Fe/H] (populated for field stars)                                          |
+| `mass_msun`                   | float    | Stellar mass in solar masses (BASTA for field stars, MIST isochrone for cluster stars)   |
+| `mass_unc_msun`               | float    | Mass uncertainty in solar masses (populated for MIST-interpolated cluster stars)         |
+| `mass_source`                 | string   | `basta` (field stars) or `mist_isochrone` (cluster stars); null if no mass               |
+| `feh`                         | float    | Metallicity [Fe/H] (BASTA for field stars, adopted literature value for cluster stars)   |
 | `logg`                        | float    | Surface gravity log g (populated for field stars)                                       |
 | `radius_rsun`                 | float    | Stellar radius in solar radii (from BASTA; populated for LEGACY stars only)             |
 | `is_cross_catalog_duplicate`  | bool     | True if the same Gaia ID (DR2/DR3) or KIC appears in more than one `source_catalog`    |
@@ -119,6 +141,18 @@ duplicates are flagged but retained.
 build script fits a degree-4 polynomial to the Curtis 2020 Table 5 pairs of
 `(BP-RP)₀, Teff` over `0.5 ≤ (BP-RP)₀ ≤ 2.6`, and applies it to stars
 lacking a published Teff. 48 rows have `teff_source = "derived_bp_rp"`.
+
+**MIST mass interpolation for cluster stars.** Cluster catalogs do not
+publish individual stellar masses. `scripts/interpolate_cluster_masses.py`
+inverts the MIST isochrone forward model `(mass, log_age, [Fe/H]) → Teff`
+via `scipy.optimize.brentq` root-finding using the `minimint` package, to
+recover mass from each star's observed Teff and its cluster's adopted age
+and literature [Fe/H]. Uncertainty is propagated as
+`σ_M = √((dM/dTeff × 75 K)² + (0.03 × M)²)`. Adopted cluster [Fe/H]
+values: NGC 2547 −0.10, Pisces-Eridanus +0.04, Pleiades +0.03, M50 +0.07,
+NGC 2516 +0.05, M37 +0.02, Praesepe +0.16, NGC 6811 +0.04, NGC 752 −0.04,
+NGC 6819 +0.09, Ruprecht 147 +0.10, M67 +0.00. A calibration check against
+Hall 2021 BASTA masses is written to `data/raw/mist_basta_calibration.csv`.
 
 ### Loading the sample (precision-safe)
 

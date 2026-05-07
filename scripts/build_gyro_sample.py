@@ -88,6 +88,8 @@ UNIFIED_COLUMNS = [
     "age_unc_gyr",       # symmetric uncertainty in age (null for cluster stars)
     # Model parameters — populated for asteroseismic catalogs with BASTA results.
     "mass_msun",
+    "mass_unc_msun",
+    "mass_source",       # 'basta' | 'mist_isochrone' | null
     "feh",
     "logg",
     "radius_rsun",
@@ -213,6 +215,7 @@ def _load_hall_2021() -> pd.DataFrame:
     out["age_unc_gyr"] = (lo + up) / 2.0
     # Model parameters from Hall 2021.
     out["mass_msun"] = pd.to_numeric(df.get("modmass"), errors="coerce")
+    out["mass_source"] = out["mass_msun"].where(out["mass_msun"].isna(), "basta")
     out["feh"] = pd.to_numeric(df.get("feh"), errors="coerce")
     out["logg"] = pd.to_numeric(df.get("modlogg"), errors="coerce")
     out["radius_rsun"] = pd.to_numeric(df.get("modrad"), errors="coerce")
@@ -241,6 +244,7 @@ def _load_legacy_2017() -> pd.DataFrame:
     out["age_unc_gyr"] = (lo + up) / 2.0
     # BASTA model parameters.
     out["mass_msun"] = pd.to_numeric(df["modmass"], errors="coerce")
+    out["mass_source"] = out["mass_msun"].where(out["mass_msun"].isna(), "basta")
     out["feh"] = pd.to_numeric(df["feh"], errors="coerce")
     out["logg"] = pd.to_numeric(df["modlogg"], errors="coerce")
     out["radius_rsun"] = pd.to_numeric(df["modrad"], errors="coerce")
@@ -263,6 +267,7 @@ def _load_garcia_2014() -> pd.DataFrame:
     out["age_source"] = "asteroseismic_garcia2014"
     out["age_unc_gyr"] = pd.to_numeric(df["age_unc_gyr"], errors="coerce")
     out["mass_msun"] = pd.to_numeric(df["mass_msun"], errors="coerce")
+    out["mass_source"] = out["mass_msun"].where(out["mass_msun"].isna(), "basta")
     out["feh"] = pd.to_numeric(df["feh"], errors="coerce")
     out["logg"] = pd.to_numeric(df["logg"], errors="coerce")
     out["radius_rsun"] = pd.to_numeric(df["radius_rsun"], errors="coerce")
@@ -335,6 +340,70 @@ def _populate_age_columns(sample: pd.DataFrame) -> pd.DataFrame:
     )
     sample.loc[is_cluster, "age_source"] = "cluster"
     # age_unc_gyr stays NA for cluster stars (point estimates).
+    return sample
+
+
+# ---------------------------------------------------------------------------
+# MIST isochrone masses for cluster stars (graceful: warn if missing).
+# ---------------------------------------------------------------------------
+
+MIST_MASSES_PATH = RAW / "cluster_masses_mist.csv"
+
+
+def _merge_mist_masses(sample: pd.DataFrame) -> pd.DataFrame:
+    """Join MIST-interpolated masses onto cluster stars lacking mass_msun.
+
+    Reads ``data/raw/cluster_masses_mist.csv`` if it exists; otherwise
+    prints a warning and returns the sample unchanged.
+    """
+    if not MIST_MASSES_PATH.exists():
+        n_missing = (
+            sample["cluster"].notna()
+            & sample["mass_msun"].isna()
+            & sample["teff_k"].notna()
+            & sample["prot_d"].notna()
+        ).sum()
+        print(f"[warn] {MIST_MASSES_PATH.relative_to(REPO_ROOT)} not found — "
+              f"{n_missing} cluster stars will lack mass_msun.",
+              file=sys.stderr)
+        print("  Run: python scripts/interpolate_cluster_masses.py",
+              file=sys.stderr)
+        return sample
+
+    mist = pd.read_csv(MIST_MASSES_PATH)
+    print(f"[info] loading MIST masses: {len(mist)} rows from "
+          f"{MIST_MASSES_PATH.relative_to(REPO_ROOT)}")
+
+    sample = sample.copy()
+    need = (
+        sample["cluster"].notna()
+        & sample["mass_msun"].isna()
+        & sample["teff_k"].notna()
+    )
+
+    for idx in sample.index[need]:
+        row = sample.loc[idx]
+        dr2 = row.get("gaia_dr2")
+        dr3 = row.get("gaia_dr3")
+
+        match = pd.DataFrame()
+        if pd.notna(dr2):
+            match = mist[mist["gaia_dr2"].astype(str) == str(dr2)]
+        if match.empty and pd.notna(dr3):
+            match = mist[mist["gaia_dr3"].astype(str) == str(dr3)]
+
+        if match.empty:
+            continue
+
+        m = match.iloc[0]
+        sample.at[idx, "mass_msun"] = m["mass_msun_mist"]
+        sample.at[idx, "mass_unc_msun"] = m["mass_unc_msun_mist"]
+        sample.at[idx, "mass_source"] = "mist_isochrone"
+        if pd.isna(row.get("feh")):
+            sample.at[idx, "feh"] = m["feh_adopted"]
+
+    n_filled = (sample["mass_source"] == "mist_isochrone").sum()
+    print(f"  Filled {n_filled} cluster stars with MIST masses.")
     return sample
 
 
@@ -430,6 +499,10 @@ def _print_summary(sample: pd.DataFrame) -> None:
 
     mass = sample["mass_msun"]
     print(f"Stars with mass_msun: {mass.notna().sum()}")
+    if "mass_source" in sample.columns:
+        for src, n in sample["mass_source"].value_counts(dropna=False).items():
+            label = src if pd.notna(src) else "(no mass)"
+            print(f"  {label:<20s}  {n:>5d}")
     print(f"Stars with feh:       {sample['feh'].notna().sum()}")
     print(f"Stars with logg:      {sample['logg'].notna().sum()}")
     print(f"Stars with radius:    {sample['radius_rsun'].notna().sum()}")
@@ -481,12 +554,13 @@ def main() -> int:
     sample = pd.concat(frames, ignore_index=True)
     sample = _derive_missing_teff(sample)
     sample = _populate_age_columns(sample)
+    sample = _merge_mist_masses(sample)
     sample = _flag_cross_catalog_duplicates(sample)
 
     # Numeric coercion for final output (avoids object dtypes from _empty_frame).
     for col in ("cluster_age_gyr", "teff_k", "bp_rp_0", "prot_d", "ra_deg",
                 "dec_deg", "age_gyr", "age_unc_gyr",
-                "mass_msun", "feh", "logg", "radius_rsun"):
+                "mass_msun", "mass_unc_msun", "feh", "logg", "radius_rsun"):
         sample[col] = pd.to_numeric(sample[col], errors="coerce")
 
     sample = sample.sort_values(

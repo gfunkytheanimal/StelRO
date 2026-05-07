@@ -32,8 +32,35 @@ python scripts/fetch_godoy_rivera_2021.py    # 7 clusters, Gaia DR2, 3492 rows
 python scripts/fetch_curtis_2019_psceri.py   # Pisces-Eridanus stream, 120 Myr
 python scripts/fetch_gruner_2023_m67.py      # M67, ~4 Gyr, Gaia DR3
 python scripts/fetch_hall_2021.py            # asteroseismic field stars, 1-13 Gyr
+python scripts/fetch_silva_aguirre_2017.py   # LEGACY ages/masses, 66 stars
+python scripts/fetch_nielsen_2017.py         # seismic Prot (literature)
+python scripts/fetch_mcquillan_2014.py       # surface spot Prot (McQuillan etc.)
+python scripts/build_legacy_sample.py        # -> data/processed/legacy_assembled.csv
+python scripts/fetch_garcia_2014.py          # García spot Prot, 293 stars
+python scripts/fetch_chaplin_2014.py         # Chaplin asteroseismic ages, 518 stars
+python scripts/build_garcia_sample.py        # -> data/raw/garcia_assembled.csv
 python scripts/build_gyro_sample.py          # -> data/processed/gyro_sample.csv
 ```
+
+### Cluster mass interpolation (optional, local-only)
+
+```bash
+python scripts/_minimint_check.py            # verify minimint + MIST grid
+python scripts/interpolate_cluster_masses.py # -> data/raw/cluster_masses_mist.csv
+python scripts/build_gyro_sample.py          # re-run to merge MIST masses
+```
+
+The MIST grid download (~500 MB) requires access to `waps.cfa.harvard.edu`
+and must be run locally:
+
+```bash
+pip install minimint scipy
+python -c "import minimint; minimint.download_and_prepare()"
+```
+
+`build_gyro_sample.py` gracefully skips the merge if
+`cluster_masses_mist.csv` is absent — the pipeline is fully functional
+without it, but cluster stars will lack `mass_msun`.
 
 Each `fetch_*.py` script queries the VizieR TAP endpoint (primary) and
 transparently falls back to a mirror when CDS is unreachable. Pass `--mirror`
@@ -49,6 +76,8 @@ to force the fallback.
 | `curtis_2019_psceri`  | Curtis et al. 2019, AJ 158, 77         | cluster |  101 | 0.12 Gyr         |
 | `gruner_2023_m67`     | Gruner, Barnes & Weingrill 2023, A&A 675, A180 | cluster | 47 | 4.0 Gyr   |
 | `hall_2021`           | Hall et al. 2021, Nature Astronomy 5, 707 | field (asteroseismic) | 94 | 1.3 – 13.0 Gyr |
+| `legacy_2017`         | Silva Aguirre et al. 2017, ApJ 835, 173 (BASTA) + surface Prot crossmatch | field (asteroseismic) | 66 | 1.3 – 13.0 Gyr |
+| `garcia_2014`         | García et al. 2014, A&A 572, A34 (spot Prot) + Chaplin et al. 2014, ApJS 210, 1 (ages) | field (asteroseismic) | 293 | 0.5 – 13.8 Gyr |
 
 **Hall et al. 2021 note.** Rotation periods in this catalog are derived from
 asteroseismic rotational frequency splitting (not surface spot modulation).
@@ -57,6 +86,25 @@ rate; for subgiants (`hrclass="SG"` in the raw table, 4 of 94 stars), core
 and surface rates can decouple. The raw table preserves the `flag` and
 `hrclass` columns for downstream quality filtering. Data sourced from the
 author's official repository ([`ojhall94/halletal2021`](https://github.com/ojhall94/halletal2021)).
+
+**García 2014 note.** Rotation periods are surface spot modulation (ACF +
+wavelet method), NOT asteroseismic splitting — the same technique as the
+cluster catalogs. Ages come from Chaplin et al. 2014 grid-based
+asteroseismology (~20–30% precision, vs. ~10% for Hall/LEGACY BASTA ages).
+40 of 293 stars overlap with Hall 2021 by KIC; the remaining 253 are
+genuinely new stars. Overlapping stars are kept as independent measurements
+(`is_cross_catalog_duplicate = True`); `dedupe_by_gaia()` prefers
+Hall > LEGACY > García for shared KICs. `age_source = "asteroseismic_garcia2014"`.
+
+**LEGACY 2017 note.** All 66 LEGACY KICs are a subset of the 94 Hall 2021
+stars (source='L' in Hall). The LEGACY addition provides: (1) BASTA model
+parameters (mass, radius, [Fe/H], log g) from Silva Aguirre et al. 2017,
+and (2) surface spot-modulation Prot where available (43 of 66 stars from
+McQuillan 2014, García 2014, and others — assembled via the `malatium`
+companion repo). The `prot_source` column tracks which measurement each
+star uses; 6 LEGACY stars have no Prot from any source. These 66 rows are
+flagged as cross-catalog duplicates with Hall 2021; use `dedupe_by_gaia()`
+(which also deduplicates on KIC) to retain only the preferred row per star.
 
 ## `data/processed/gyro_sample.csv` schema
 
@@ -75,17 +123,36 @@ duplicates are flagged but retained.
 | `teff_k`                      | float    | Effective temperature in Kelvin                                                         |
 | `teff_source`                 | string   | `catalog` if Teff was published; `derived_bp_rp` if derived from (BP-RP)₀               |
 | `bp_rp_0`                     | float    | Dereddened Gaia BP-RP colour (where published)                                          |
-| `prot_d`                      | float    | Rotation period in days (surface spot for clusters, asteroseismic splitting for Hall)    |
+| `prot_d`                      | float    | Rotation period in days                                                                 |
+| `prot_source`                 | string   | `spot_modulation`, `asteroseismic_splitting`, `mcquillan_2014`, `garcia_2014`, etc.     |
 | `ra_deg`, `dec_deg`           | float    | ICRS coordinates (degrees) where provided                                               |
 | `age_gyr`                     | float    | **Adopted age in Gyr.** Equals `cluster_age_gyr` for cluster stars; equals the asteroseismic age for field stars. Populated for every row. |
-| `age_source`                  | string   | `cluster` or `asteroseismic_hall_2021` (extensible — Phase 2 will add `asteroseismic_legacy`) |
+| `age_source`                  | string   | `cluster`, `asteroseismic_hall_2021`, or `asteroseismic_legacy`                         |
 | `age_unc_gyr`                 | float    | Symmetric age uncertainty in Gyr (mean of asymmetric lo/up); null for cluster stars      |
-| `is_cross_catalog_duplicate`  | bool     | True if the same Gaia ID (DR2 or DR3) appears in more than one `source_catalog`         |
+| `mass_msun`                   | float    | Stellar mass in solar masses (BASTA for field stars, MIST isochrone for cluster stars)   |
+| `mass_unc_msun`               | float    | Mass uncertainty in solar masses (populated for MIST-interpolated cluster stars)         |
+| `mass_source`                 | string   | `basta` (field stars) or `mist_isochrone` (cluster stars); null if no mass               |
+| `feh`                         | float    | Metallicity [Fe/H] (BASTA for field stars, adopted literature value for cluster stars)   |
+| `logg`                        | float    | Surface gravity log g (populated for field stars)                                       |
+| `radius_rsun`                 | float    | Stellar radius in solar radii (from BASTA; populated for LEGACY stars only)             |
+| `is_cross_catalog_duplicate`  | bool     | True if the same Gaia ID (DR2/DR3) or KIC appears in more than one `source_catalog`    |
 
 **Teff derivation for M67.** Gruner et al. 2023 do not publish Teff. The
 build script fits a degree-4 polynomial to the Curtis 2020 Table 5 pairs of
 `(BP-RP)₀, Teff` over `0.5 ≤ (BP-RP)₀ ≤ 2.6`, and applies it to stars
 lacking a published Teff. 48 rows have `teff_source = "derived_bp_rp"`.
+
+**MIST mass interpolation for cluster stars.** Cluster catalogs do not
+publish individual stellar masses. `scripts/interpolate_cluster_masses.py`
+inverts the MIST isochrone forward model `(mass, log_age, [Fe/H]) → Teff`
+via `scipy.optimize.brentq` root-finding using the `minimint` package, to
+recover mass from each star's observed Teff and its cluster's adopted age
+and literature [Fe/H]. Uncertainty is propagated as
+`σ_M = √((dM/dTeff × 75 K)² + (0.03 × M)²)`. Adopted cluster [Fe/H]
+values: NGC 2547 −0.10, Pisces-Eridanus +0.04, Pleiades +0.03, M50 +0.07,
+NGC 2516 +0.05, M37 +0.02, Praesepe +0.16, NGC 6811 +0.04, NGC 752 −0.04,
+NGC 6819 +0.09, Ruprecht 147 +0.10, M67 +0.00. A calibration check against
+Hall 2021 BASTA masses is written to `data/raw/mist_basta_calibration.csv`.
 
 ### Loading the sample (precision-safe)
 
@@ -103,7 +170,17 @@ unique = dedupe_by_gaia(sample)
 ### Current sample summary
 
 ```
-Total: 4724 rows (4630 cluster + 94 field), 16 columns.
+Total: 5083 rows (4630 cluster + 453 field), 21 columns.
+
+Per-source counts:
+  curtis_2020               923
+  curtis_2020_rup147         67
+  godoy_rivera_2021        3492
+  curtis_2019_psceri        101
+  gruner_2023_m67            47
+  hall_2021                  94
+  legacy_2017                66
+  garcia_2014               293
 
 Per-cluster counts (age-ordered):
   NGC 2547         0.035 Gyr  n=  176
@@ -119,28 +196,28 @@ Per-cluster counts (age-ordered):
   Ruprecht 147     2.700 Gyr  n=  102
   M67              4.000 Gyr  n=   47
 
-Hall 2021 field stars: 94
-  Age span: 1.3 – 13.0 Gyr (asteroseismic)
-  Prot span: 1.2 – 53.6 d (asteroseismic splitting)
+Field stars: 453 (94 Hall + 66 LEGACY + 293 García)
+  García–Hall KIC overlap: 40 (García-only: 253 new stars)
+  Age span: 0.5 – 13.8 Gyr (asteroseismic)
 
-Age histogram (1-Gyr bins):
-   0- 1 Gyr   4050
-   1- 2 Gyr    409
-   2- 3 Gyr    159
-   3- 4 Gyr     14
-   4- 5 Gyr     51
-   5- 6 Gyr      4
-   6- 7 Gyr     14
-   7- 8 Gyr      9
-   8- 9 Gyr      4
-   9-10 Gyr      3
-  10-11 Gyr      3
-  11-12 Gyr      3
-  12-13 Gyr      1
+Prot source breakdown:
+  spot_modulation              4923  (clusters + García)
+  asteroseismic_splitting        94  (Hall 2021)
+  garcia_2014                    31  (LEGACY spot crossmatch)
+  asteroseismic_benomar_2018     17  (LEGACY seismic crossmatch)
+  mcquillan_2014                 10  (LEGACY spot crossmatch)
+  van_saders_ceillier             2
+  (no Prot)                       6
 
-G dwarfs (5200-5900 K) with age > 2 Gyr: 86
+G dwarfs (5200-5900 K) with age > 2 Gyr: 157 (pre-dedup)
   cluster                           55
+  asteroseismic_garcia2014          51
   asteroseismic_hall_2021           31
+  asteroseismic_legacy              20
+
+Modeling-ready (age>2, G-dwarf, non-null Prot AND mass):
+  Pre-dedup:  100
+  Deduped:     73  (44 García-only + 18 LEGACY + 11 Hall)
 ```
 
 ## Conventions

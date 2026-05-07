@@ -36,6 +36,9 @@ python scripts/fetch_silva_aguirre_2017.py   # LEGACY ages/masses, 66 stars
 python scripts/fetch_nielsen_2017.py         # seismic Prot (literature)
 python scripts/fetch_mcquillan_2014.py       # surface spot Prot (McQuillan etc.)
 python scripts/build_legacy_sample.py        # -> data/processed/legacy_assembled.csv
+python scripts/fetch_garcia_2014.py          # García spot Prot, 293 stars
+python scripts/fetch_chaplin_2014.py         # Chaplin asteroseismic ages, 518 stars
+python scripts/build_garcia_sample.py        # -> data/raw/garcia_assembled.csv
 python scripts/build_gyro_sample.py          # -> data/processed/gyro_sample.csv
 ```
 
@@ -54,6 +57,7 @@ to force the fallback.
 | `gruner_2023_m67`     | Gruner, Barnes & Weingrill 2023, A&A 675, A180 | cluster | 47 | 4.0 Gyr   |
 | `hall_2021`           | Hall et al. 2021, Nature Astronomy 5, 707 | field (asteroseismic) | 94 | 1.3 – 13.0 Gyr |
 | `legacy_2017`         | Silva Aguirre et al. 2017, ApJ 835, 173 (BASTA) + surface Prot crossmatch | field (asteroseismic) | 66 | 1.3 – 13.0 Gyr |
+| `garcia_2014`         | García et al. 2014, A&A 572, A34 (spot Prot) + Chaplin et al. 2014, ApJS 210, 1 (ages) | field (asteroseismic) | 293 | 0.5 – 13.8 Gyr |
 
 **Hall et al. 2021 note.** Rotation periods in this catalog are derived from
 asteroseismic rotational frequency splitting (not surface spot modulation).
@@ -62,6 +66,15 @@ rate; for subgiants (`hrclass="SG"` in the raw table, 4 of 94 stars), core
 and surface rates can decouple. The raw table preserves the `flag` and
 `hrclass` columns for downstream quality filtering. Data sourced from the
 author's official repository ([`ojhall94/halletal2021`](https://github.com/ojhall94/halletal2021)).
+
+**García 2014 note.** Rotation periods are surface spot modulation (ACF +
+wavelet method), NOT asteroseismic splitting — the same technique as the
+cluster catalogs. Ages come from Chaplin et al. 2014 grid-based
+asteroseismology (~20–30% precision, vs. ~10% for Hall/LEGACY BASTA ages).
+40 of 293 stars overlap with Hall 2021 by KIC; the remaining 253 are
+genuinely new stars. Overlapping stars are kept as independent measurements
+(`is_cross_catalog_duplicate = True`); `dedupe_by_gaia()` prefers
+Hall > LEGACY > García for shared KICs. `age_source = "asteroseismic_garcia2014"`.
 
 **LEGACY 2017 note.** All 66 LEGACY KICs are a subset of the 94 Hall 2021
 stars (source='L' in Hall). The LEGACY addition provides: (1) BASTA model
@@ -123,7 +136,7 @@ unique = dedupe_by_gaia(sample)
 ### Current sample summary
 
 ```
-Total: 4790 rows (4630 cluster + 160 field), 21 columns.
+Total: 5083 rows (4630 cluster + 453 field), 21 columns.
 
 Per-source counts:
   curtis_2020               923
@@ -133,6 +146,7 @@ Per-source counts:
   gruner_2023_m67            47
   hall_2021                  94
   legacy_2017                66
+  garcia_2014               293
 
 Per-cluster counts (age-ordered):
   NGC 2547         0.035 Gyr  n=  176
@@ -148,39 +162,28 @@ Per-cluster counts (age-ordered):
   Ruprecht 147     2.700 Gyr  n=  102
   M67              4.000 Gyr  n=   47
 
-Field stars: 160 (94 Hall 2021 + 66 LEGACY)
-  Age span: 1.3 – 13.0 Gyr (asteroseismic)
+Field stars: 453 (94 Hall + 66 LEGACY + 293 García)
+  García–Hall KIC overlap: 40 (García-only: 253 new stars)
+  Age span: 0.5 – 13.8 Gyr (asteroseismic)
 
 Prot source breakdown:
-  spot_modulation              4630
-  asteroseismic_splitting        94
-  garcia_2014                    31
-  asteroseismic_benomar_2018     17
-  mcquillan_2014                 10
+  spot_modulation              4923  (clusters + García)
+  asteroseismic_splitting        94  (Hall 2021)
+  garcia_2014                    31  (LEGACY spot crossmatch)
+  asteroseismic_benomar_2018     17  (LEGACY seismic crossmatch)
+  mcquillan_2014                 10  (LEGACY spot crossmatch)
   van_saders_ceillier             2
   (no Prot)                       6
 
-Age histogram (1-Gyr bins):
-   0- 1 Gyr   4050
-   1- 2 Gyr    417
-   2- 3 Gyr    181
-   3- 4 Gyr     22
-   4- 5 Gyr     55
-   5- 6 Gyr      5
-   6- 7 Gyr     20
-   7- 8 Gyr     16
-   8- 9 Gyr      7
-   9-10 Gyr      6
-  10-11 Gyr      5
-  11-12 Gyr      4
-  12-13 Gyr      2
-
-G dwarfs (5200-5900 K) with age > 2 Gyr: 106
+G dwarfs (5200-5900 K) with age > 2 Gyr: 157 (pre-dedup)
   cluster                           55
+  asteroseismic_garcia2014          51
   asteroseismic_hall_2021           31
   asteroseismic_legacy              20
 
-Modeling-ready (age>2, G-dwarf, non-null Prot AND mass): 49
+Modeling-ready (age>2, G-dwarf, non-null Prot AND mass):
+  Pre-dedup:  100
+  Deduped:     73  (44 García-only + 18 LEGACY + 11 Hall)
 ```
 
 ## Conventions

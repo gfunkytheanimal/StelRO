@@ -59,6 +59,7 @@ def dedupe_by_gaia(
         "gruner_2023_m67",
         "legacy_2017",
         "hall_2021",
+        "garcia_2014",
     ),
 ) -> pd.DataFrame:
     """Keep one row per star, preferring catalogs earlier in ``priority``.

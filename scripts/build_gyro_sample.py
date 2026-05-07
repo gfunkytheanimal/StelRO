@@ -17,6 +17,9 @@ Run the fetchers first (or only the ones you want):
     python scripts/fetch_nielsen_2017.py           # seismic Prot (literature)
     python scripts/fetch_mcquillan_2014.py         # surface spot Prot
     python scripts/build_legacy_sample.py          # -> legacy_assembled.csv
+    python scripts/fetch_garcia_2014.py            # García spot Prot, 293 stars
+    python scripts/fetch_chaplin_2014.py           # Chaplin ages, 518 stars
+    python scripts/build_garcia_sample.py          # -> garcia_assembled.csv
     python scripts/build_gyro_sample.py
 """
 from __future__ import annotations
@@ -244,6 +247,28 @@ def _load_legacy_2017() -> pd.DataFrame:
     return out
 
 
+def _load_garcia_2014() -> pd.DataFrame:
+    """Load García 2014 rotation periods + Chaplin 2014 asteroseismic properties."""
+    df = pd.read_csv(RAW / "garcia_assembled.csv")
+    out = _empty_frame(len(df))
+    out["source_catalog"] = "garcia_2014"
+    out["cluster"] = pd.NA
+    out["cluster_age_gyr"] = pd.NA
+    out["kic"] = df["KIC"].astype("Int64").astype("string")
+    out["teff_k"] = pd.to_numeric(df["teff_k"], errors="coerce")
+    out["teff_source"] = "catalog"
+    out["prot_d"] = pd.to_numeric(df["prot_d"], errors="coerce")
+    out["prot_source"] = "spot_modulation"
+    out["age_gyr"] = pd.to_numeric(df["age_gyr"], errors="coerce")
+    out["age_source"] = "asteroseismic_garcia2014"
+    out["age_unc_gyr"] = pd.to_numeric(df["age_unc_gyr"], errors="coerce")
+    out["mass_msun"] = pd.to_numeric(df["mass_msun"], errors="coerce")
+    out["feh"] = pd.to_numeric(df["feh"], errors="coerce")
+    out["logg"] = pd.to_numeric(df["logg"], errors="coerce")
+    out["radius_rsun"] = pd.to_numeric(df["radius_rsun"], errors="coerce")
+    return out
+
+
 LOADERS = {
     "curtis_2020":          _load_curtis_2020,
     "curtis_2020_rup147":   _load_curtis_2020_rup147,
@@ -252,6 +277,7 @@ LOADERS = {
     "gruner_2023_m67":      _load_gruner_2023_m67,
     "hall_2021":            _load_hall_2021,
     "legacy_2017":          _load_legacy_2017,
+    "garcia_2014":          _load_garcia_2014,
 }
 
 
@@ -377,7 +403,18 @@ def _print_summary(sample: pd.DataFrame) -> None:
     print()
 
     dup = int(sample["is_cross_catalog_duplicate"].sum())
-    print(f"Rows sharing a Gaia DR2/DR3 ID across catalogs: {dup}")
+    print(f"Rows flagged as cross-catalog duplicates: {dup}")
+
+    # García / Hall overlap report.
+    garcia = sample[sample["source_catalog"] == "garcia_2014"]
+    hall = sample[sample["source_catalog"] == "hall_2021"]
+    if len(garcia) and len(hall):
+        garcia_kics = set(garcia["kic"].dropna())
+        hall_kics = set(hall["kic"].dropna())
+        overlap = garcia_kics & hall_kics
+        print(f"García–Hall KIC overlap: {len(overlap)} stars "
+              f"(García-only: {len(garcia_kics - hall_kics)}, "
+              f"Hall-only: {len(hall_kics - garcia_kics)})")
     teff = sample["teff_k"]
     prot = sample["prot_d"]
     print(f"Teff range [K]: {teff.min():.1f} .. {teff.max():.1f} "
@@ -419,6 +456,8 @@ def _print_summary(sample: pd.DataFrame) -> None:
     old_g_modeling = old_g[old_g["prot_d"].notna() & old_g["mass_msun"].notna()]
     print(f"\nModeling-ready (age>2, G-dwarf, non-null Prot AND mass): "
           f"{len(old_g_modeling)}")
+    for src, n in old_g_modeling["age_source"].value_counts().items():
+        print(f"  {src:<30s}  {n:>4d}")
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,9 @@ python scripts/fetch_silva_aguirre_2017.py --mirror
 python scripts/fetch_nielsen_2017.py
 python scripts/fetch_mcquillan_2014.py
 python scripts/build_legacy_sample.py
+python scripts/fetch_garcia_2014.py --mirror
+python scripts/fetch_chaplin_2014.py
+python scripts/build_garcia_sample.py
 python scripts/build_gyro_sample.py
 ```
 
@@ -26,8 +29,8 @@ python scripts/build_gyro_sample.py
 Always use the helper — naive `pd.read_csv` corrupts 19-digit Gaia IDs:
 ```python
 from scripts.gyro_sample import load_gyro_sample, dedupe_by_gaia
-sample = load_gyro_sample()           # 4790 rows, 21 cols
-unique = dedupe_by_gaia(sample)       # ~3784 unique stars
+sample = load_gyro_sample()           # 5083 rows, 21 cols
+unique = dedupe_by_gaia(sample)       # ~4037 unique stars
 ```
 
 ## Key columns
@@ -36,7 +39,7 @@ unique = dedupe_by_gaia(sample)       # ~3784 unique stars
 - `prot_d` — rotation period in days
 - `teff_k` — effective temperature in K
 - `prot_source` — measurement technique: `"spot_modulation"`, `"asteroseismic_splitting"`, or per-paper label
-- `age_source` — `"cluster"`, `"asteroseismic_hall_2021"`, or `"asteroseismic_legacy"`
+- `age_source` — `"cluster"`, `"asteroseismic_hall_2021"`, `"asteroseismic_legacy"`, or `"asteroseismic_garcia2014"`
 - `age_unc_gyr` — age uncertainty (null for cluster stars)
 - `mass_msun`, `feh`, `logg`, `radius_rsun` — BASTA model parameters (populated for field stars)
 - `is_cross_catalog_duplicate` — True if same Gaia ID or KIC in multiple catalogs
@@ -65,6 +68,11 @@ to force the fallback).
 - LEGACY 2017: all 66 KICs are a subset of Hall 2021; the addition brings
   BASTA model params and surface-Prot crossmatch (43/66 have spot Prot)
 - 6 LEGACY stars have no Prot from any source
+- García 2014: 293 stars, 253 genuinely new (40 overlap Hall by KIC).
+  Prot is surface spot modulation; ages are Chaplin 2014 grid-based
+  (~20-30% precision vs ~10% for Hall/LEGACY BASTA). Dedup prefers
+  Hall > LEGACY > García for overlapping KICs.
 - Cluster ages are point estimates with no uncertainty in this schema;
   field stars carry `age_unc_gyr`
-- Modeling-ready count (age>2 Gyr, G-dwarf, non-null Prot AND mass): 49
+- Modeling-ready count (age>2 Gyr, G-dwarf, non-null Prot AND mass):
+  100 pre-dedup, 73 deduped (44 García + 18 LEGACY + 11 Hall)
